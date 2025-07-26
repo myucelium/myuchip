@@ -1,0 +1,12 @@
+[package]
+name = "myuchip"
+version = "0.1.0"
+authors = ["Myu <myucelium@outlook.com>"]
+edition = "2018"
+description = "Chip-8 virtual machine"
+homepage = "https://github.com/myucelium/myuchip"
+license = "MIT"
+
+[dependencies]
+clap = { version = "^4.5.40", features = ["derive"] }
+proc-bitfield = "^0.5.2"
