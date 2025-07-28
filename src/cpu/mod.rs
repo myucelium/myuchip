@@ -132,7 +132,9 @@ impl Cpu {
 
     /// Executes a single Chip-8 instruction
     pub fn step(&mut self) {
-        let opcode = Opcode::new(self.bus.read_word(Address::new(self.regfile.pc)));
+        let pc = *self.pc();
+
+        let opcode = Opcode::new(self.bus.read_word(Address::new(pc)));
 
         self.regfile.advance_pc();
 
@@ -188,7 +190,9 @@ impl Cpu {
 
     /// Call subroutine
     fn call(&mut self, opcode: Opcode) {
-        self.stack.push(self.regfile.pc);
+        let return_addr = *self.pc();
+
+        self.stack.push(return_addr);
 
         *self.pc() = opcode.nnn();
     }
