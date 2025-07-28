@@ -103,7 +103,7 @@ impl Cpu {
 
     /// Clears screen
     fn cls(&mut self, _opcode: Opcode) {
-        // todo!();
+        self.display.borrow_mut().as_mut_slice().fill(0);
     }
 
     /// Draws sprite
