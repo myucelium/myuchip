@@ -1,8 +1,11 @@
-use crate::bus::{Address, Bus};
+use crate::{bus::{Address, Bus}, cpu::{opcode::Opcode, regfile::RegFile}};
+
+mod opcode;
+mod regfile;
 
 type OpcodePattern = u16;
 type OpcodeMask = u16;
-type OpcodeHandler = fn(&mut Cpu, u16);
+type OpcodeHandler = fn(&mut Cpu, Opcode);
 
 /// Opcode descriptor (opcode pattern, mask, handler)
 #[derive(Clone, Copy)]
@@ -35,27 +38,80 @@ impl OpcodeMatcher {
 
 impl Default for OpcodeMatcher {
     fn default() -> Self {
-        Self { registered_opcodes: Vec::new(), }
+        Self { registered_opcodes: Vec::new() }
     }
 }
 
 pub struct Cpu {
     bus: Bus,
     matcher: OpcodeMatcher,
+    regfile: RegFile,
 }
 
 impl Cpu {
     pub fn new(bus: Bus) -> Self {
+        // Populate matcher with descriptors
+        const OPCODE_DESCS: [OpcodeDesc; 6] = [
+            OpcodeDesc(0x00E0, 0xFFFF, Cpu::cls),
+            OpcodeDesc(0x1000, 0xF000, Cpu::jp),
+            OpcodeDesc(0x6000, 0xF000, Cpu::ldv),
+            OpcodeDesc(0x7000, 0xF000, Cpu::add_imm),
+            OpcodeDesc(0xA000, 0xF000, Cpu::ldi),
+            OpcodeDesc(0xD000, 0xF000, Cpu::drw),
+        ];
+
+        let mut matcher = OpcodeMatcher::default();
+
+        for desc in OPCODE_DESCS {
+            matcher.register(desc);
+        }
+
         Self {
             bus,
-            matcher: OpcodeMatcher::default(),
+            matcher,
+            regfile: RegFile::default(),
         }
     }
 
     /// Executes a single Chip-8 instruction
     pub fn step(&mut self) {
-        let opcode = self.bus.read_word(Address::new(0x200));
+        let opcode = Opcode::new(self.bus.read_word(Address::new(self.regfile.pc)));
 
-        self.matcher.match_opcode(opcode)(self, opcode);
+        self.regfile.advance_pc();
+
+        self.matcher.match_opcode(opcode.raw())(self, opcode);
+    }
+
+    // --- Opcode handlers
+
+    /// Adds immediate (kk)
+    fn add_imm(&mut self, opcode: Opcode) {
+        let x = opcode.x();
+
+        self.regfile.gprs[x] = self.regfile.gprs[x].wrapping_add(opcode.kk());
+    }
+
+    /// Clears screen
+    fn cls(&mut self, _opcode: Opcode) {
+        // todo!();
+    }
+
+    /// Draws sprite
+    fn drw(&mut self, _opcode: Opcode) {
+        // todo!();
+    }
+
+    /// Jumps to other location in program
+    fn jp(&mut self, opcode: Opcode) {
+        self.regfile.pc = opcode.nnn();
+    }
+
+    /// Loads index register
+    fn ldi(&mut self, opcode: Opcode) {
+        self.regfile.index = opcode.nnn();
+    }
+    
+    fn ldv(&mut self, opcode: Opcode) {
+        self.regfile.gprs[opcode.x()] = opcode.kk();
     }
 }
