@@ -312,18 +312,18 @@ impl Cpu {
     
     /// Vx <<= 1, VF = carry
     fn shl(&mut self, opcode: Opcode) {
-        let x = opcode.x();
+        let (x, vx) = (opcode.x(), *self.v(opcode.x()));
 
-        let (result, has_overflowed) = self.v(x).overflowing_shl(1);
+        let (result, has_overflowed) = (self.v(x).unbounded_shl(1), vx.reverse_bits() & 1 != 0);
 
         (*self.v(x), *self.v(VF)) = (result, has_overflowed as u8);
     }
     
     /// Vx >>= 1, VF = carry
     fn shr(&mut self, opcode: Opcode) {
-        let x = opcode.x();
+        let (x, vx) = (opcode.x(), *self.v(opcode.x()));
 
-        let (result, has_overflowed) = self.v(x).overflowing_shr(1);
+        let (result, has_overflowed) = (self.v(x).unbounded_shr(1), vx & 1 != 0);
 
         (*self.v(x), *self.v(VF)) = (result, has_overflowed as u8);
     }
@@ -348,7 +348,7 @@ impl Cpu {
 
         let (result, has_overflowed) = self.v(x).overflowing_sub(*self.v(opcode.y()));
 
-        (*self.v(x), *self.v(VF)) = (result, has_overflowed as u8);
+        (*self.v(x), *self.v(VF)) = (result, !has_overflowed as u8);
     }
     
     /// Vx = Vy - Vx, VF = !borrow
