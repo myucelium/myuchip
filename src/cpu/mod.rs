@@ -206,22 +206,33 @@ impl Cpu {
     fn drw(&mut self, opcode: Opcode) {
         let (index, x, y) = (*self.i() as u16, *self.v(opcode.x()) as usize, *self.v(opcode.y()) as usize);
 
-        let mut display = self.display.borrow_mut();
+        let mut has_collided = false;
 
-        // TODO: set VF
+        {
+            let mut display = self.display.borrow_mut();
 
-        for n in 0..opcode.n() {
-            // Get next row of pixels
-            let pixels = self.bus.read_byte(Address::new(index.wrapping_add(n as u16))).reverse_bits();
+            for n in 0..opcode.n() {
+                // Get next row of pixels
+                let pixels = self.bus.read_byte(Address::new(index.wrapping_add(n as u16))).reverse_bits();
+    
+                // Draw every individual pixel as either white or black
+                for i in 0..8 {
+                    let display_idx = Display::WIDTH * ((y + n) % Display::HEIGHT) + ((x + i as usize) % Display::WIDTH);
 
-            // Draw every individual pixel as either white or black
-            for i in 0..8 {
-                // 1 == white
-                let pixel = (pixels.wrapping_shr(i) & 1) as u32;
-
-                display[Display::WIDTH * (y + n) + x + (i as usize)] = Display::COLOR_WHITE * pixel;
+                    // 1 == white
+                    let (pixel, old_pixel) = (
+                        Display::COLOR_WHITE * (pixels.wrapping_shr(i) & 1) as u32,
+                        display[display_idx],
+                    );
+    
+                    has_collided |= (pixel & old_pixel) == Display::COLOR_WHITE;
+    
+                    display[display_idx] ^= pixel;
+                }
             }
         }
+
+        *self.v(VF) = has_collided as u8;
     }
 
     /// Jump
