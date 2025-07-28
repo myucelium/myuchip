@@ -60,11 +60,15 @@ impl Cpu {
 
     pub fn new(bus: Bus, display: Rc<RefCell<Display>>) -> Self {
         // Populate matcher with descriptors
-        const OPCODE_DESCS: [OpcodeDesc; 6] = [
+        const OPCODE_DESCS: [OpcodeDesc; 10] = [
             OpcodeDesc(0x00E0, 0xFFFF, Cpu::cls),
             OpcodeDesc(0x1000, 0xF000, Cpu::jp),
+            OpcodeDesc(0x3000, 0xF000, Cpu::se_imm),
+            OpcodeDesc(0x4000, 0xF000, Cpu::sne_imm),
+            OpcodeDesc(0x5000, 0xF00F, Cpu::se_reg),
             OpcodeDesc(0x6000, 0xF000, Cpu::ldv),
             OpcodeDesc(0x7000, 0xF000, Cpu::add_imm),
+            OpcodeDesc(0x9000, 0xF00F, Cpu::sne_reg),
             OpcodeDesc(0xA000, 0xF000, Cpu::ldi),
             OpcodeDesc(0xD000, 0xF000, Cpu::drw),
         ];
@@ -141,5 +145,33 @@ impl Cpu {
     /// Loads GPR with immediate
     fn ldv(&mut self, opcode: Opcode) {
         self.regfile.gprs[opcode.x()] = opcode.kk();
+    }
+
+    /// Skips next opcode if Vx == kk
+    fn se_imm(&mut self, opcode: Opcode) {
+        if self.regfile.gprs[opcode.x()] == opcode.kk() {
+            self.regfile.advance_pc();
+        }
+    }
+
+    /// Skips next opcode if Vx == Vy
+    fn se_reg(&mut self, opcode: Opcode) {
+        if self.regfile.gprs[opcode.x()] == self.regfile.gprs[opcode.y()] {
+            self.regfile.advance_pc();
+        }
+    }
+
+    /// Skips next opcode if Vx != kk
+    fn sne_imm(&mut self, opcode: Opcode) {
+        if self.regfile.gprs[opcode.x()] != opcode.kk() {
+            self.regfile.advance_pc();
+        }
+    }
+
+    /// Skips next opcode if Vx != Vy
+    fn sne_reg(&mut self, opcode: Opcode) {
+        if self.regfile.gprs[opcode.x()] != self.regfile.gprs[opcode.y()] {
+            self.regfile.advance_pc();
+        }
     }
 }
