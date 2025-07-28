@@ -2,6 +2,8 @@ use std::ops::{Index, IndexMut};
 
 pub const NUM_GPRS: usize = 16;
 
+pub const VF: usize = 15;
+
 /// Chip-8 general-purpose registers V0-VF
 pub struct Gprs([u8; NUM_GPRS]);
 
