@@ -1,9 +1,17 @@
-use crate::{bus::{Bus, memory::Memory}, cpu::Cpu};
+use crate::{
+    bus::{Bus, memory::Memory},
+    cpu::Cpu,
+    display::*,
+};
+
+use std::{rc::Rc, cell::RefCell};
 
 pub use clap::Parser;
+pub use minifb::{Key, Window, WindowOptions};
 
 mod bus;
 mod cpu;
+mod display;
 
 #[derive(Parser, Debug, Default)]
 #[command(version, about)]
@@ -14,6 +22,7 @@ pub struct Args {
 
 pub struct Core {
     cpu: Cpu,
+    display: Rc<RefCell<Display>>,
 }
 
 impl Core {
@@ -29,14 +38,32 @@ impl Core {
 
         mem[Self::ROM_START..Self::ROM_START + len].copy_from_slice(&rom[..len]);
 
+        // TODO: load Chip-8 font into RAM
+
+        let display = Rc::new(RefCell::new(Display::default()));
+
         Self {
-            cpu: Cpu::new(Bus::new(mem)),
+            cpu: Cpu::new(Bus::new(mem), display.clone()),
+            display,
         }
     }
 
     pub fn run(&mut self) {
-        loop {
-            self.cpu.step();
+        let mut window = Window::new(
+            "myuchip",
+            Display::WIDTH,
+            Display::HEIGHT,
+            WindowOptions { borderless: false, title: true, resize: false, scale: minifb::Scale::X8, scale_mode: minifb::ScaleMode::Center, topmost: true, transparency: false, none: false },
+        ).unwrap();
+
+        window.set_target_fps(60);
+
+        while window.is_open() && !window.is_key_down(Key::Escape) {
+            for _ in 0..Cpu::STEPS {
+                self.cpu.step();
+            }
+
+            window.update_with_buffer((self.display.borrow()).as_slice(), Display::WIDTH, Display::HEIGHT).unwrap();
         }
     }
 }
