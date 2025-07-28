@@ -9,3 +9,4 @@ license = "MIT"
 
 [dependencies]
 clap = { version = "^4.5.40", features = ["derive"] }
+minifb = "0.28.0"
