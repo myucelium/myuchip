@@ -8,6 +8,10 @@ impl Display {
 
     pub const COLOR_WHITE: u32 = 0xFFFFFFFF;
 
+    pub fn as_mut_slice(&mut self) -> &mut [u32] {
+        &mut self.0
+    }
+
     pub fn as_slice(&self) -> &[u32] {
         &self.0
     }
