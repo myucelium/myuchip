@@ -1,7 +1,7 @@
-use myuchip::{Args, Parser};
+use myuchip::{Args, Core, Parser};
 
 fn main() {
-    let args = Args::parse();
+    let mut core = Core::new(Args::parse());
 
-    println!("{:?}", args);
+    core.run();
 }
