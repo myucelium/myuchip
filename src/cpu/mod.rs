@@ -1,4 +1,10 @@
-use crate::{bus::{Address, Bus}, cpu::{opcode::Opcode, regfile::RegFile}};
+use crate::{
+    bus::{Address, Bus},
+    cpu::{opcode::Opcode, regfile::RegFile},
+    display::Display,
+};
+
+use std::{rc::Rc, cell::RefCell};
 
 mod opcode;
 mod regfile;
@@ -44,12 +50,15 @@ impl Default for OpcodeMatcher {
 
 pub struct Cpu {
     bus: Bus,
+    display: Rc<RefCell<Display>>,
     matcher: OpcodeMatcher,
     regfile: RegFile,
 }
 
 impl Cpu {
-    pub fn new(bus: Bus) -> Self {
+    pub const STEPS: usize = 256;
+
+    pub fn new(bus: Bus, display: Rc<RefCell<Display>>) -> Self {
         // Populate matcher with descriptors
         const OPCODE_DESCS: [OpcodeDesc; 6] = [
             OpcodeDesc(0x00E0, 0xFFFF, Cpu::cls),
@@ -68,6 +77,7 @@ impl Cpu {
 
         Self {
             bus,
+            display,
             matcher,
             regfile: RegFile::default(),
         }
@@ -84,7 +94,7 @@ impl Cpu {
 
     // --- Opcode handlers
 
-    /// Adds immediate (kk)
+    /// Adds immediate
     fn add_imm(&mut self, opcode: Opcode) {
         let x = opcode.x();
 
@@ -97,8 +107,25 @@ impl Cpu {
     }
 
     /// Draws sprite
-    fn drw(&mut self, _opcode: Opcode) {
-        // todo!();
+    fn drw(&mut self, opcode: Opcode) {
+        let mut display = self.display.borrow_mut();
+
+        let (x, y) = (self.regfile.gprs[opcode.x()] as usize, self.regfile.gprs[opcode.y()] as usize);
+
+        // TODO: set VF
+
+        for n in 0..opcode.n() {
+            // Get next row of pixels
+            let pixels = self.bus.read_byte(Address::new(self.regfile.index.wrapping_add(n as u16))).reverse_bits();
+
+            // Draw every individual pixel as either white or black
+            for i in 0..8 {
+                // 1 == white
+                let pixel = (pixels.wrapping_shr(i) & 1) as u32;
+
+                display[Display::WIDTH * (y + n) + x + (i as usize)] = Display::COLOR_WHITE * pixel;
+            }
+        }
     }
 
     /// Jumps to other location in program
@@ -111,6 +138,7 @@ impl Cpu {
         self.regfile.index = opcode.nnn();
     }
     
+    /// Loads GPR with immediate
     fn ldv(&mut self, opcode: Opcode) {
         self.regfile.gprs[opcode.x()] = opcode.kk();
     }
