@@ -1,4 +1,4 @@
-use std::ops::{Index, IndexMut};
+use std::{mem::size_of, ops::{Index, IndexMut}};
 
 pub const NUM_GPRS: usize = 16;
 
@@ -67,7 +67,11 @@ pub struct RegFile {
 
 impl RegFile {
     pub fn advance_pc(&mut self) {
-        self.pc = self.pc.wrapping_add(std::mem::size_of::<u16>() as u16);
+        self.pc = self.pc.wrapping_add(size_of::<u16>() as u16);
+    }
+
+    pub fn rewind_pc(&mut self) {
+        self.pc = self.pc.wrapping_sub(size_of::<u16>() as u16);
     }
 }
 
