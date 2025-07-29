@@ -2,6 +2,7 @@ use crate::{
     bus::{Address, Bus},
     cpu::{opcode::Opcode, regfile::{RegFile, VF}},
     display::Display,
+    keypad::Keypad,
 };
 
 use std::{rc::Rc, cell::RefCell};
@@ -82,6 +83,7 @@ impl Default for Stack {
 pub struct Cpu {
     bus: Bus,
     display: Rc<RefCell<Display>>,
+    keypad: Rc<RefCell<Keypad>>,
     matcher: OpcodeMatcher,
     regfile: RegFile,
     stack: Stack,
@@ -90,7 +92,7 @@ pub struct Cpu {
 impl Cpu {
     pub const STEPS: usize = 256;
 
-    pub fn new(bus: Bus, display: Rc<RefCell<Display>>) -> Self {
+    pub fn new(bus: Bus, display: Rc<RefCell<Display>>, keypad: Rc<RefCell<Keypad>>) -> Self {
         // Populate matcher with descriptors
         const OPCODE_DESCS: [OpcodeDesc; 31] = [
             OpcodeDesc(0x00E0, 0xFFFF, Cpu::cls),
@@ -135,6 +137,7 @@ impl Cpu {
         Self {
             bus,
             display,
+            keypad,
             matcher,
             regfile: RegFile::default(),
             stack: Stack::default(),
@@ -347,10 +350,18 @@ impl Cpu {
     }
 
     /// Vx = key
-    fn ldv_key(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
-        *self.pc() = self.pc().wrapping_sub(std::mem::size_of::<u16>() as u16);
-    
-        Some(CpuEvent::WaitForKey)
+    fn ldv_key(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        let key = self.keypad.borrow().any_key();
+
+        if let Some(cpu_index) = key {
+            *self.v(opcode.x()) = cpu_index;
+
+            None
+        } else {
+            self.regfile.rewind_pc();
+
+            Some(CpuEvent::WaitForKey)
+        }        
     }
 
     /// V0-Vx = [I]
@@ -426,21 +437,21 @@ impl Cpu {
     }
 
     /// Skip if key x is pressed
-    fn skp(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
-        // TODO
-        let condition = false;
+    fn skp(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        let key = *self.v(opcode.x()) as usize;
+        let is_key_pressed = self.keypad.borrow().is_key_pressed(key);
 
-        self.skip(condition);
+        self.skip(is_key_pressed);
 
         None
     }
 
     /// Skip if key x is not pressed
-    fn sknp(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
-        // TODO
-        let condition = true;
+    fn sknp(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        let key = *self.v(opcode.x()) as usize;
+        let is_key_pressed = self.keypad.borrow().is_key_pressed(key);
 
-        self.skip(condition);
+        self.skip(!is_key_pressed);
 
         None
     }
