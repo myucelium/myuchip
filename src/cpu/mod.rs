@@ -223,7 +223,8 @@ impl Cpu {
     
     /// Vx = Vx AND Vy
     fn and(&mut self, opcode: Opcode) -> Option<CpuEvent> {
-        *self.v(opcode.x()) &= *self.v(opcode.y());
+        // Note: AND, OR and XOR reset VF
+        (*self.v(opcode.x()), *self.v(VF)) = (*self.v(opcode.x()) & *self.v(opcode.y()), 0);
 
         None
     }
@@ -248,20 +249,38 @@ impl Cpu {
 
     /// Draw sprite
     fn drw(&mut self, opcode: Opcode) -> Option<CpuEvent> {
-        let (index, x, y) = (*self.i() as u16, *self.v(opcode.x()) as usize, *self.v(opcode.y()) as usize);
+        let (index, x, y) = (
+            *self.i() as u16,
+            *self.v(opcode.x()) as usize % Display::WIDTH,
+            *self.v(opcode.y()) as usize % Display::HEIGHT,
+        );
 
         let mut has_collided = false;
 
-        {
+        'drw_loop: {
             let mut display = self.display.borrow_mut();
 
             for n in 0..opcode.n() {
                 // Get next row of pixels
                 let pixels = self.bus.read_byte(Address::new(index.wrapping_add(n as u16))).reverse_bits();
+
+                let yn = y + n;
+
+                // Y > 31 causes clipping
+                if yn >= Display::HEIGHT {
+                    break 'drw_loop;
+                }
     
                 // Draw every individual pixel as either white or black
                 for i in 0..8 {
-                    let display_idx = Display::WIDTH * ((y + n) % Display::HEIGHT) + ((x + i as usize) % Display::WIDTH);
+                    let xi = x + i as usize;
+
+                    // X > 63 causes clipping
+                    if xi >= Display::WIDTH {
+                        break;
+                    }
+
+                    let display_idx = Display::WIDTH * yn + ((x + i as usize) % Display::WIDTH);
 
                     // 1 == white
                     let (pixel, old_pixel) = (
@@ -332,6 +351,8 @@ impl Cpu {
             self.bus.write_byte(Address::new(index.wrapping_add(i as u16)), vx);
         }
 
+        *self.i() = index.wrapping_add(opcode.x() as u16).wrapping_add(1);
+
         None
     }
 
@@ -372,6 +393,8 @@ impl Cpu {
             *self.v(i) = self.bus.read_byte(Address::new(index.wrapping_add(i as u16)));
         }
 
+        *self.i() = index.wrapping_add(opcode.x() as u16).wrapping_add(1);
+
         None
     }
     
@@ -384,7 +407,7 @@ impl Cpu {
     
     /// Vx = Vx OR Vy
     fn or(&mut self, opcode: Opcode) -> Option<CpuEvent> {
-        *self.v(opcode.x()) |= *self.v(opcode.y());
+        (*self.v(opcode.x()), *self.v(VF)) = (*self.v(opcode.x()) | *self.v(opcode.y()), 0);
 
         None
     }
@@ -416,22 +439,22 @@ impl Cpu {
     
     /// Vx <<= 1, VF = carry
     fn shl(&mut self, opcode: Opcode) -> Option<CpuEvent> {
-        let (x, vx) = (opcode.x(), *self.v(opcode.x()));
+        let vy = *self.v(opcode.y());
 
-        let (result, has_overflowed) = (self.v(x).unbounded_shl(1), vx.reverse_bits() & 1 != 0);
+        let (result, has_overflowed) = (vy.unbounded_shl(1), vy.reverse_bits() & 1 != 0);
 
-        (*self.v(x), *self.v(VF)) = (result, has_overflowed as u8);
+        (*self.v(opcode.x()), *self.v(VF)) = (result, has_overflowed as u8);
 
         None
     }
     
     /// Vx >>= 1, VF = carry
     fn shr(&mut self, opcode: Opcode) -> Option<CpuEvent> {
-        let (x, vx) = (opcode.x(), *self.v(opcode.x()));
+        let vy = *self.v(opcode.y());
 
-        let (result, has_overflowed) = (self.v(x).unbounded_shr(1), vx & 1 != 0);
+        let (result, has_overflowed) = (vy.unbounded_shr(1), vy & 1 != 0);
 
-        (*self.v(x), *self.v(VF)) = (result, has_overflowed as u8);
+        (*self.v(opcode.x()), *self.v(VF)) = (result, has_overflowed as u8);
 
         None
     }
@@ -498,7 +521,7 @@ impl Cpu {
     
     /// Vx = Vx XOR Vy
     fn xor(&mut self, opcode: Opcode) -> Option<CpuEvent> {
-        *self.v(opcode.x()) ^= *self.v(opcode.y());
+        (*self.v(opcode.x()), *self.v(VF)) = (*self.v(opcode.x()) ^ *self.v(opcode.y()), 0);
 
         None
     }
