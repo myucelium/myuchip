@@ -7,6 +7,8 @@ use crate::{
 
 use std::{rc::Rc, cell::RefCell};
 
+use rand::prelude::*;
+
 mod opcode;
 mod regfile;
 
@@ -87,6 +89,7 @@ pub struct Cpu {
     matcher: OpcodeMatcher,
     regfile: RegFile,
     stack: Stack,
+    rng: ThreadRng,
 }
 
 impl Cpu {
@@ -94,7 +97,7 @@ impl Cpu {
 
     pub fn new(bus: Bus, display: Rc<RefCell<Display>>, keypad: Rc<RefCell<Keypad>>) -> Self {
         // Populate matcher with descriptors
-        const OPCODE_DESCS: [OpcodeDesc; 32] = [
+        const OPCODE_DESCS: [OpcodeDesc; 33] = [
             OpcodeDesc(0x00E0, 0xFFFF, Cpu::cls),
             OpcodeDesc(0x00EE, 0xFFFF, Cpu::ret),
             OpcodeDesc(0x1000, 0xF000, Cpu::jp),
@@ -117,6 +120,7 @@ impl Cpu {
             OpcodeDesc(0xA000, 0xF000, Cpu::ldi_imm),
             OpcodeDesc(0xB000, 0xF000, Cpu::jp_idx),
             OpcodeDesc(0xD000, 0xF000, Cpu::drw),
+            OpcodeDesc(0xC000, 0xF000, Cpu::rnd),
             OpcodeDesc(0xE09E, 0xF0FF, Cpu::skp),
             OpcodeDesc(0xE0A1, 0xF0FF, Cpu::sknp),
             OpcodeDesc(0xF007, 0xF0FF, Cpu::ldv_dt),
@@ -142,6 +146,7 @@ impl Cpu {
             matcher,
             regfile: RegFile::default(),
             stack: Stack::default(),
+            rng: ThreadRng::default(),
         }
     }
 
@@ -425,6 +430,13 @@ impl Cpu {
     /// Return
     fn ret(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
         *self.pc() = self.stack.pop();
+
+        None
+    }
+
+    /// Vx = random number AND kk
+    fn rnd(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        *self.v(opcode.x()) = self.rng.random::<u8>() & opcode.kk();
 
         None
     }
