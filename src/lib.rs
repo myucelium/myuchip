@@ -64,6 +64,10 @@ impl Core {
         window.set_target_fps(60);
 
         while window.is_open() && !window.is_key_down(Key::Escape) {
+            self.keypad.borrow_mut().update_state(window.get_keys());
+
+            self.cpu.tick();
+
             'step_cpu: for _ in 0..Cpu::STEPS {
                 if let Some(event) = self.cpu.step() {
                     match event {
@@ -72,11 +76,7 @@ impl Core {
                 }
             }
 
-            self.cpu.tick();
-
-            self.keypad.borrow_mut().update_state(window.get_keys());
-
-            window.update_with_buffer((self.display.borrow()).as_slice(), Display::WIDTH, Display::HEIGHT).unwrap();
+            window.update_with_buffer(self.display.borrow().as_slice(), Display::WIDTH, Display::HEIGHT).unwrap();
         }
     }
 }

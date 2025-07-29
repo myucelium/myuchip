@@ -90,7 +90,7 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub const STEPS: usize = 256;
+    pub const STEPS: usize = 11;
 
     pub fn new(bus: Bus, display: Rc<RefCell<Display>>, keypad: Rc<RefCell<Keypad>>) -> Self {
         // Populate matcher with descriptors
