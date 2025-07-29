@@ -94,7 +94,7 @@ impl Cpu {
 
     pub fn new(bus: Bus, display: Rc<RefCell<Display>>, keypad: Rc<RefCell<Keypad>>) -> Self {
         // Populate matcher with descriptors
-        const OPCODE_DESCS: [OpcodeDesc; 31] = [
+        const OPCODE_DESCS: [OpcodeDesc; 32] = [
             OpcodeDesc(0x00E0, 0xFFFF, Cpu::cls),
             OpcodeDesc(0x00EE, 0xFFFF, Cpu::ret),
             OpcodeDesc(0x1000, 0xF000, Cpu::jp),
@@ -123,6 +123,7 @@ impl Cpu {
             OpcodeDesc(0xF00A, 0xF0FF, Cpu::ldv_key),
             OpcodeDesc(0xF015, 0xF0FF, Cpu::lddt),
             OpcodeDesc(0xF01E, 0xF0FF, Cpu::addi),
+            OpcodeDesc(0xF029, 0xF0FF, Cpu::ldf),
             OpcodeDesc(0xF033, 0xF0FF, Cpu::ldb),
             OpcodeDesc(0xF055, 0xF0FF, Cpu::ldi_mem),
             OpcodeDesc(0xF065, 0xF0FF, Cpu::ldv_mem),
@@ -330,6 +331,15 @@ impl Cpu {
     /// Delay timer = Vx
     fn lddt(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         *self.dt() = *self.v(opcode.x());
+
+        None
+    }
+
+    /// I = address of font character x
+    fn ldf(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        use crate::Core;
+
+        *self.i() = (Core::SPRITES_START + Core::SPRITE_SIZE * (*self.v(opcode.x()) as usize % Core::NUM_SPRITES)) as u16;
 
         None
     }
