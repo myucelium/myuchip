@@ -2,16 +2,18 @@ use crate::{
     bus::{Bus, memory::Memory},
     cpu::{Cpu, CpuEvent},
     display::*,
+    keypad::Keypad,
 };
 
 use std::{rc::Rc, cell::RefCell};
 
 pub use clap::Parser;
-pub use minifb::{Key, Window, WindowOptions};
+pub use minifb::{Key, KeyRepeat, Window, WindowOptions};
 
 mod bus;
 mod cpu;
 mod display;
+mod keypad;
 
 #[derive(Parser, Debug, Default)]
 #[command(version, about)]
@@ -23,6 +25,7 @@ pub struct Args {
 pub struct Core {
     cpu: Cpu,
     display: Rc<RefCell<Display>>,
+    keypad: Rc<RefCell<Keypad>>,
 }
 
 impl Core {
@@ -41,10 +44,12 @@ impl Core {
         // TODO: load Chip-8 font into RAM
 
         let display = Rc::new(RefCell::new(Display::default()));
+        let keypad = Rc::new(RefCell::new(Keypad::default()));
 
         Self {
-            cpu: Cpu::new(Bus::new(mem), display.clone()),
+            cpu: Cpu::new(Bus::new(mem), display.clone(), keypad.clone()),
             display,
+            keypad,
         }
     }
 
@@ -62,13 +67,14 @@ impl Core {
             'step_cpu: for _ in 0..Cpu::STEPS {
                 if let Some(event) = self.cpu.step() {
                     match event {
-                        CpuEvent::Draw => break 'step_cpu,
-                        _ => {},
+                        CpuEvent::Draw | CpuEvent::WaitForKey => break 'step_cpu,
                     }
                 }
             }
 
             self.cpu.tick();
+
+            self.keypad.borrow_mut().update_state(window.get_keys());
 
             window.update_with_buffer((self.display.borrow()).as_slice(), Display::WIDTH, Display::HEIGHT).unwrap();
         }
