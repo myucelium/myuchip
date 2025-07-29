@@ -64,7 +64,7 @@ impl Keypad {
     const NUM: usize = 16;
 
     pub fn is_key_pressed(&self, cpu_index: usize) -> bool {
-        self.state[Keymap::key_index(cpu_index)]
+        self.state[Keymap::key_index(cpu_index % Self::NUM)]
     }
 
     /// Returns Some if any key is pressed (key with the lowest index is returned)
