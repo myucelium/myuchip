@@ -1,6 +1,6 @@
 use crate::{
     bus::{Bus, memory::Memory},
-    cpu::Cpu,
+    cpu::{Cpu, CpuEvent},
     display::*,
 };
 
@@ -59,9 +59,16 @@ impl Core {
         window.set_target_fps(60);
 
         while window.is_open() && !window.is_key_down(Key::Escape) {
-            for _ in 0..Cpu::STEPS {
-                self.cpu.step();
+            'step_cpu: for _ in 0..Cpu::STEPS {
+                if let Some(event) = self.cpu.step() {
+                    match event {
+                        CpuEvent::Draw => break 'step_cpu,
+                        _ => {},
+                    }
+                }
             }
+
+            self.cpu.tick();
 
             window.update_with_buffer((self.display.borrow()).as_slice(), Display::WIDTH, Display::HEIGHT).unwrap();
         }
