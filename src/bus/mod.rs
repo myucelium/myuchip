@@ -13,21 +13,14 @@ impl Address {
         Self(addr)
     }
 
-    /// Unchecked mask for byte accesses
-    pub fn mask_address(&self) -> u16 {
-        self.0 & Self::MAX
+    /// Masked address for byte accesses
+    pub fn masked_address(&self) -> usize {
+        (self.0 & Self::MAX) as usize
     }
 
-    /// Returns masked address if 16-bit access won't go out of bounds,
-    /// None otherwise
-    pub fn checked_mask_address(&self) -> Option<u16> {
-        let masked_addr = self.0 & Self::MAX;
-
-        if masked_addr == Self::MAX {
-            None
-        } else {
-            Some(masked_addr)
-        }
+    /// Masked next address for word accesses
+    pub fn masked_next_address(&self) -> usize {
+        (self.0.wrapping_add(1) & Self::MAX) as usize
     }
 }
 
@@ -41,20 +34,14 @@ impl Bus {
     }
 
     pub fn read_byte(&self, addr: Address) -> u8 {
-        let masked_addr = addr.mask_address() as usize;
-
-        self.mem[masked_addr]
+        self.mem[addr.masked_address()]
     }
 
     pub fn read_word(&self, addr: Address) -> u16 {
-        let masked_addr = addr.checked_mask_address().expect("Word address out of bounds") as usize;
-
-        u16::from_be_bytes([self.mem[masked_addr], self.mem[masked_addr + 1]])
+        u16::from_be_bytes([self.mem[addr.masked_address()], self.mem[addr.masked_next_address()]])
     }
 
     pub fn write_byte(&mut self, addr: Address, data: u8) {
-        let masked_addr = addr.mask_address() as usize;
-
-        self.mem[masked_addr] = data;
+        self.mem[addr.masked_address()] = data;
     }
 }
