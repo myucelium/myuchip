@@ -9,9 +9,14 @@ use std::{rc::Rc, cell::RefCell};
 mod opcode;
 mod regfile;
 
+pub enum CpuEvent {
+    Draw,
+    WaitForKey,   
+}
+
 type OpcodePattern = u16;
 type OpcodeMask = u16;
-type OpcodeHandler = fn(&mut Cpu, Opcode);
+type OpcodeHandler = fn(&mut Cpu, Opcode) -> Option<CpuEvent>;
 
 /// Opcode descriptor (opcode pattern, mask, handler)
 #[derive(Clone, Copy)]
@@ -87,7 +92,7 @@ impl Cpu {
 
     pub fn new(bus: Bus, display: Rc<RefCell<Display>>) -> Self {
         // Populate matcher with descriptors
-        const OPCODE_DESCS: [OpcodeDesc; 25] = [
+        const OPCODE_DESCS: [OpcodeDesc; 31] = [
             OpcodeDesc(0x00E0, 0xFFFF, Cpu::cls),
             OpcodeDesc(0x00EE, 0xFFFF, Cpu::ret),
             OpcodeDesc(0x1000, 0xF000, Cpu::jp),
@@ -108,7 +113,13 @@ impl Cpu {
             OpcodeDesc(0x800E, 0xF00F, Cpu::shl),
             OpcodeDesc(0x9000, 0xF00F, Cpu::sne_reg),
             OpcodeDesc(0xA000, 0xF000, Cpu::ldi_imm),
+            OpcodeDesc(0xB000, 0xF000, Cpu::jp_idx),
             OpcodeDesc(0xD000, 0xF000, Cpu::drw),
+            OpcodeDesc(0xE09E, 0xF0FF, Cpu::skp),
+            OpcodeDesc(0xE0A1, 0xF0FF, Cpu::sknp),
+            OpcodeDesc(0xF007, 0xF0FF, Cpu::ldv_dt),
+            OpcodeDesc(0xF00A, 0xF0FF, Cpu::ldv_key),
+            OpcodeDesc(0xF015, 0xF0FF, Cpu::lddt),
             OpcodeDesc(0xF01E, 0xF0FF, Cpu::addi),
             OpcodeDesc(0xF033, 0xF0FF, Cpu::ldb),
             OpcodeDesc(0xF055, 0xF0FF, Cpu::ldi_mem),
@@ -131,14 +142,32 @@ impl Cpu {
     }
 
     /// Executes a single Chip-8 instruction
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> Option<CpuEvent> {
         let pc = *self.pc();
 
         let opcode = Opcode::new(self.bus.read_word(Address::new(pc)));
 
         self.regfile.advance_pc();
+    
+        self.matcher.match_opcode(opcode.raw())(self, opcode)
+    }
 
-        self.matcher.match_opcode(opcode.raw())(self, opcode);
+    /// Ticks the delay and sound timers
+    pub fn tick(&mut self) {
+        self.regfile.delay_timer.decrement();
+        self.regfile.sound_timer.decrement();
+    }
+
+    /// Skip instruction if condition is true
+    fn skip(&mut self, condition: bool) {
+        if condition {
+            self.regfile.advance_pc()
+        }
+    }
+
+    /// Returns a mutable reference to the delay timer
+    fn dt(&mut self) -> &mut u8 {
+        self.regfile.delay_timer.counter()
     }
 
     /// Returns a mutable reference to PC
@@ -158,52 +187,64 @@ impl Cpu {
 
     // --- Opcode handlers
 
-    fn dummy(&mut self, opcode: Opcode) {
+    fn dummy(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         panic!("No handler for opcode {:04X}", opcode.raw());
     }
 
     /// Vx += kk
-    fn add_imm(&mut self, opcode: Opcode) {
+    fn add_imm(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let x = opcode.x();
 
         *self.v(x) = self.v(x).wrapping_add(opcode.kk());
+
+        None
     }
     
     /// Vx += Vy, VF = carry
-    fn add_reg(&mut self, opcode: Opcode) {
+    fn add_reg(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let x = opcode.x();
 
         let (result, has_overflowed) = self.v(x).overflowing_add(*self.v(opcode.y()));
 
         (*self.v(x), *self.v(VF)) = (result, has_overflowed as u8);
+
+        None
     }
 
     /// I += Vx
-    fn addi(&mut self, opcode: Opcode) {
+    fn addi(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         *self.i() = self.i().wrapping_add(*self.v(opcode.x()) as u16);
+
+        None
     }
     
     /// Vx = Vx AND Vy
-    fn and(&mut self, opcode: Opcode) {
+    fn and(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         *self.v(opcode.x()) &= *self.v(opcode.y());
+
+        None
     }
 
     /// Call subroutine
-    fn call(&mut self, opcode: Opcode) {
+    fn call(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let return_addr = *self.pc();
 
         self.stack.push(return_addr);
 
         *self.pc() = opcode.nnn();
+
+        None
     }
 
     /// Clear screen
-    fn cls(&mut self, _opcode: Opcode) {
+    fn cls(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
         self.display.borrow_mut().as_mut_slice().fill(0);
+
+        None
     }
 
     /// Draw sprite
-    fn drw(&mut self, opcode: Opcode) {
+    fn drw(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let (index, x, y) = (*self.i() as u16, *self.v(opcode.x()) as usize, *self.v(opcode.y()) as usize);
 
         let mut has_collided = false;
@@ -233,15 +274,26 @@ impl Cpu {
         }
 
         *self.v(VF) = has_collided as u8;
+
+        Some(CpuEvent::Draw)
     }
 
     /// Jump
-    fn jp(&mut self, opcode: Opcode) {
+    fn jp(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         *self.pc() = opcode.nnn();
+
+        None
+    }
+
+    /// Jump with index
+    fn jp_idx(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        *self.pc() = opcode.nnn().wrapping_add(*self.v(0) as u16);
+
+        None
     }
 
     /// [I] = BCD(Vx)
-    fn ldb(&mut self, opcode: Opcode) {
+    fn ldb(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let (index, vx) = (*self.i(), *self.v(opcode.x()));
 
         let digits = [vx / 100, (vx / 10) % 10, vx % 10];
@@ -249,15 +301,26 @@ impl Cpu {
         for i in 0..3 {
             self.bus.write_byte(Address::new(index.wrapping_add(i as u16)), digits[i]);
         }
+
+        None
+    }
+
+    /// Delay timer = Vx
+    fn lddt(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        *self.dt() = *self.v(opcode.x());
+
+        None
     }
 
     /// I = nnn
-    fn ldi_imm(&mut self, opcode: Opcode) {
+    fn ldi_imm(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         *self.i() = opcode.nnn();
+
+        None
     }
 
     /// [I] = V0-Vx
-    fn ldi_mem(&mut self, opcode: Opcode) {
+    fn ldi_mem(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let index = *self.i();
 
         for i in 0..=opcode.x() {
@@ -265,103 +328,167 @@ impl Cpu {
     
             self.bus.write_byte(Address::new(index.wrapping_add(i as u16)), vx);
         }
+
+        None
+    }
+
+    /// Vx = delay timer
+    fn ldv_dt(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        *self.v(opcode.x()) = *self.dt();
+
+        None
     }
     
     /// Vx = kk
-    fn ldv_imm(&mut self, opcode: Opcode) {
+    fn ldv_imm(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         *self.v(opcode.x()) = opcode.kk();
+
+        None
+    }
+
+    /// Vx = key
+    fn ldv_key(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
+        *self.pc() = self.pc().wrapping_sub(std::mem::size_of::<u16>() as u16);
+    
+        Some(CpuEvent::WaitForKey)
     }
 
     /// V0-Vx = [I]
-    fn ldv_mem(&mut self, opcode: Opcode) {
+    fn ldv_mem(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let index = *self.i();
     
         for i in 0..=opcode.x() {
             *self.v(i) = self.bus.read_byte(Address::new(index.wrapping_add(i as u16)));
         }
+
+        None
     }
     
     /// Vx = Vy
-    fn ldv_reg(&mut self, opcode: Opcode) {
+    fn ldv_reg(&mut self, opcode: Opcode) -> Option<CpuEvent> {
        *self.v(opcode.x()) = *self.v(opcode.y());
+
+       None
     }
     
     /// Vx = Vx OR Vy
-    fn or(&mut self, opcode: Opcode) {
+    fn or(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         *self.v(opcode.x()) |= *self.v(opcode.y());
+
+        None
     }
 
     /// Return
-    fn ret(&mut self, _opcode: Opcode) {
+    fn ret(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
         *self.pc() = self.stack.pop();
+
+        None
     }
 
     /// Skip if Vx == kk
-    fn se_imm(&mut self, opcode: Opcode) {
-        if *self.v(opcode.x()) == opcode.kk() {
-            self.regfile.advance_pc();
-        }
+    fn se_imm(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        let condition = *self.v(opcode.x()) == opcode.kk();
+
+        self.skip(condition);
+
+        None
     }
 
     /// Skip if Vx == Vy
-    fn se_reg(&mut self, opcode: Opcode) {
-        if *self.v(opcode.x()) == *self.v(opcode.y()) {
-            self.regfile.advance_pc();
-        }
+    fn se_reg(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        let condition = *self.v(opcode.x()) == *self.v(opcode.y());
+
+        self.skip(condition);
+
+        None
     }
     
     /// Vx <<= 1, VF = carry
-    fn shl(&mut self, opcode: Opcode) {
+    fn shl(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let (x, vx) = (opcode.x(), *self.v(opcode.x()));
 
         let (result, has_overflowed) = (self.v(x).unbounded_shl(1), vx.reverse_bits() & 1 != 0);
 
         (*self.v(x), *self.v(VF)) = (result, has_overflowed as u8);
+
+        None
     }
     
     /// Vx >>= 1, VF = carry
-    fn shr(&mut self, opcode: Opcode) {
+    fn shr(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let (x, vx) = (opcode.x(), *self.v(opcode.x()));
 
         let (result, has_overflowed) = (self.v(x).unbounded_shr(1), vx & 1 != 0);
 
         (*self.v(x), *self.v(VF)) = (result, has_overflowed as u8);
+
+        None
+    }
+
+    /// Skip if key x is pressed
+    fn skp(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
+        // TODO
+        let condition = false;
+
+        self.skip(condition);
+
+        None
+    }
+
+    /// Skip if key x is not pressed
+    fn sknp(&mut self, _opcode: Opcode) -> Option<CpuEvent> {
+        // TODO
+        let condition = true;
+
+        self.skip(condition);
+
+        None
     }
 
     /// Skip if Vx != kk
-    fn sne_imm(&mut self, opcode: Opcode) {
-        if *self.v(opcode.x()) != opcode.kk() {
-            self.regfile.advance_pc();
-        }
+    fn sne_imm(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        let condition = *self.v(opcode.x()) != opcode.kk();
+
+        self.skip(condition);
+
+        None
     }
 
     /// Skip if Vx != Vy
-    fn sne_reg(&mut self, opcode: Opcode) {
-        if *self.v(opcode.x()) != *self.v(opcode.y()) {
-            self.regfile.advance_pc();
-        }
+    fn sne_reg(&mut self, opcode: Opcode) -> Option<CpuEvent> {
+        let condition = *self.v(opcode.x()) != *self.v(opcode.y());
+
+        self.skip(condition);
+
+        None
     }
     
     /// Vx -= Vy, VF = !borrow
-    fn sub(&mut self, opcode: Opcode) {
+    fn sub(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let x = opcode.x();
 
         let (result, has_overflowed) = self.v(x).overflowing_sub(*self.v(opcode.y()));
 
         (*self.v(x), *self.v(VF)) = (result, !has_overflowed as u8);
+
+        None
     }
     
     /// Vx = Vy - Vx, VF = !borrow
-    fn subn(&mut self, opcode: Opcode) {
+    fn subn(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         let x = opcode.x();
 
         let (result, has_overflowed) = self.v(opcode.y()).overflowing_sub(*self.v(x));
 
         (*self.v(x), *self.v(VF)) = (result, !has_overflowed as u8);
+
+        None
     }
     
     /// Vx = Vx XOR Vy
-    fn xor(&mut self, opcode: Opcode) {
+    fn xor(&mut self, opcode: Opcode) -> Option<CpuEvent> {
         *self.v(opcode.x()) ^= *self.v(opcode.y());
+
+        None
     }
 }
